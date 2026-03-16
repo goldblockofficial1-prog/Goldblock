@@ -816,34 +816,8 @@
         <span style="flex:1; height:1px; background:var(--border); display:block;"></span>
         <span style="font-size:11px; font-family:'Outfit',sans-serif; letter-spacing:2px; color:var(--gold); text-transform:uppercase; font-weight:400;">✦ Premium</span>
       </div>
-      <div class="nl-list">
-        <div class="nli" onclick="openNL(1)">
-          <div class="nli-date"><div class="nli-day">14</div><div class="nli-mo">Mars 26</div></div>
-          <div class="nli-cnt">
-            <div class="nli-meta"><span class="nli-tag">XAUUSD</span><span class="nli-sc">★★★☆☆ 3/5</span></div>
-            <div class="nli-title">Or : Zone de décision critique — FOMC en approche</div>
-            <div class="nli-sub">$5 019 · Consolidation · Death Cross · Attendre confirmation LTF</div>
-          </div>
-          <div class="nli-right"><button class="nli-btn">Lire →</button></div>
-        </div>
-        <div class="nli" onclick="openNL(2)">
-          <div class="nli-date"><div class="nli-day">10</div><div class="nli-mo">Mars 26</div></div>
-          <div class="nli-cnt">
-            <div class="nli-meta"><span class="nli-tag">BTCUSD</span><span class="nli-sc">★★★★☆ 4/5</span></div>
-            <div class="nli-title">Bitcoin : Breakout zone demande — Flux ETF +$700M</div>
-            <div class="nli-sub">$71 129 · Rebond $63 900 · Setup LONG — PE/SL/TP détaillés</div>
-          </div>
-          <div class="nli-right"><button class="nli-btn">Lire →</button></div>
-        </div>
-        <div class="nli" onclick="openNL(3)">
-          <div class="nli-date"><div class="nli-day">03</div><div class="nli-mo">Mars 26</div></div>
-          <div class="nli-cnt">
-            <div class="nli-meta"><span class="nli-tag">XAUUSD</span><span class="nli-sc">★★☆☆☆ 2/5</span></div>
-            <div class="nli-title">Or : ATH $5 238 — Correction imminente, niveaux cibles</div>
-            <div class="nli-sub">$5 238 → $5 019 · Divergence RSI · DXY +1% · Pas de trade</div>
-          </div>
-          <div class="nli-right"><button class="nli-btn">Lire →</button></div>
-        </div>
+      <div class="nl-list" id="nl-list-dyn">
+        <div style="color:var(--muted);padding:20px;text-align:center">Chargement des analyses...</div>
       </div>
     </div>
   </div>
@@ -1009,10 +983,98 @@ const NL = {
   }
 };
 
+// Cache des newsletters chargées depuis Supabase
+let nlCache = {};
+let nlList  = [];
+
+function starsHTML(score) {
+  return '★'.repeat(score) + '☆'.repeat(5 - score) + ` ${score}/5`;
+}
+
+function formatDate(iso) {
+  const d = new Date(iso);
+  return { day: d.getDate(), month: d.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }) };
+}
+
+async function loadNewslettersFromSB() {
+  const container = document.getElementById('nl-list-dyn');
+  if (!container) return;
+  container.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center">Chargement des analyses...</div>';
+  try {
+    const res = await fetch(`${SB_URL}/rest/v1/newsletters?select=id,actif,titre,sous_titre,score,published_at,semaine&visible=eq.true&order=published_at.desc&limit=20`, {
+      headers: { 'apikey': SB_ANON, 'Authorization': `Bearer ${SB_ANON}` }
+    });
+    const rows = await res.json();
+    nlList = rows;
+    if (!rows.length) {
+      container.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center">Aucune analyse disponible pour l\'instant.</div>';
+      return;
+    }
+    container.innerHTML = rows.map(nl => {
+      const { day, month } = formatDate(nl.published_at);
+      return `<div class="nli" onclick="openNL(${nl.id})">
+        <div class="nli-date"><div class="nli-day">${day}</div><div class="nli-mo">${month}</div></div>
+        <div class="nli-cnt">
+          <div class="nli-meta"><span class="nli-tag">${nl.actif}</span><span class="nli-sc">${starsHTML(nl.score)}</span></div>
+          <div class="nli-title">${nl.titre}</div>
+          <div class="nli-sub">${nl.sous_titre || ''}</div>
+        </div>
+        <div class="nli-right"><button class="nli-btn">Lire →</button></div>
+      </div>`;
+    }).join('');
+    // Mettre à jour aussi la home
+    updateHomePreviewsDyn(rows);
+  } catch(e) {
+    container.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center">Erreur de chargement.</div>';
+    console.error('loadNewslettersFromSB:', e);
+  }
+}
+
+async function openNL(id) {
+  document.getElementById('modal-body').innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)">Chargement...</div>';
+  document.getElementById('modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  if (!nlCache[id]) {
+    const res = await fetch(`${SB_URL}/rest/v1/newsletters?id=eq.${id}&select=*`, {
+      headers: { 'apikey': SB_ANON, 'Authorization': `Bearer ${SB_ANON}` }
+    });
+    const rows = await res.json();
+    if (rows[0]) nlCache[id] = rows[0];
+  }
+
+  const n = nlCache[id];
+  if (!n) { document.getElementById('modal-body').innerHTML = '<p>Analyse introuvable.</p>'; return; }
+
+  const { day, month } = formatDate(n.published_at);
+  document.getElementById('modal-body').innerHTML = `
+    <span class="modal-tag">${n.actif} · ${n.semaine || (day + ' ' + month)}</span>
+    <h1>${n.titre}</h1>
+    <div class="modal-meta">
+      <span><strong>${n.actif}</strong></span>
+      <span><strong>${starsHTML(n.score)}</strong></span>
+      <span><strong>Publié le ${new Date(n.published_at).toLocaleDateString('fr-FR', {day:'numeric',month:'long',year:'numeric'})}</strong></span>
+    </div>
+    <div class="mbody">${n.contenu || ''}</div>`;
+}
+
 function renderNL(id) {
-  const n = NL[id];
-  const metaH = n.meta.map(m=>`<span><strong>${m.v}</strong></span>`).join('');
-  return `<span class="modal-tag">${n.tag}</span><h1>${n.title}</h1><div class="modal-meta">${metaH}</div><div class="mbody">${n.body}</div>`;
+  // Fallback legacy pour les NL hardcodées (rétrocompatibilité)
+  if (NL && NL[id]) {
+    const n = NL[id];
+    const metaH = n.meta.map(m=>`<span><strong>${m.v}</strong></span>`).join('');
+    return `<span class="modal-tag">${n.tag}</span><h1>${n.title}</h1><div class="modal-meta">${metaH}</div><div class="mbody">${n.body}</div>`;
+  }
+  openNL(id);
+  return '';
+}
+
+function updateHomePreviewsDyn(rows) {
+  // Mettre à jour les aperçus sur la home avec les vraies données
+  if (!rows || !rows.length) return;
+  const s = gS();
+  const isPremium = s && s.premium;
+  // Laisse updateHomePreviews gérer l'affichage selon le statut
 }
 
 // ══════════════════════════════════════════
@@ -1179,6 +1241,8 @@ function applyS(u){
   document.getElementById('view-free').style.display    = ip ? 'none' : 'block';
   document.getElementById('view-premium').style.display = ip ? 'block' : 'none';
 
+  if (ip) loadNewslettersFromSB();
+
   // Mettre à jour les aperçus de la home
   updateHomePreviews();
 }
@@ -1338,7 +1402,6 @@ function handleHomeNL(id) {
 }
 
 // ── NL Modal ──
-function openNL(id){document.getElementById('modal-body').innerHTML=renderNL(id);document.getElementById('modal').classList.add('open');document.body.style.overflow='hidden';}
 function closeNL(){document.getElementById('modal').classList.remove('open');document.body.style.overflow='';}
 function handleNL(id){const s=gS();if(!s){showPage('signup');return;}if(s.premium)openNL(id);else document.getElementById('upbar').scrollIntoView({behavior:'smooth'});}
 
