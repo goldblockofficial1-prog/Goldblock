@@ -1,15 +1,17 @@
-name: GoldBlock — Analyse hebdomadaire
+name: GoldBlock — Newsletter Hebdomadaire
 
 on:
   schedule:
-    - cron: '0 7 * * 1'  # Lundi 7h UTC = 8h Paris
-  workflow_dispatch:       # Déclenchement manuel possible
+    - cron: '0 7 * * 1'  # Chaque lundi à 7h UTC = 8h Paris
+  workflow_dispatch:       # Déclenchement manuel
 
 jobs:
   generate:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
-      - name: Générer les analyses XAUUSD & BTCUSD
+      - name: Générer la newsletter GoldBlock (XAUUSD + BTCUSD)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -38,31 +40,43 @@ jobs:
             });
           }
 
-          async function generateAnalysis(actif) {
-            const today = new Date().toLocaleDateString('fr-FR', {
-              weekday:'long', day:'numeric', month:'long', year:'numeric',
-              timeZone:'Europe/Paris'
+          async function generateNewsletter(actif) {
+            const now = new Date();
+            const today = now.toLocaleDateString('fr-FR', {
+              weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+              timeZone: 'Europe/Paris'
             });
 
-            const prompt = `Tu es un analyste de marché professionnel. Aujourd'hui c'est ${today}.
-Génère une analyse complète de marché pour ${actif} basée sur les données actuelles.
+            const lastMonday = new Date(now); lastMonday.setDate(now.getDate() - 7);
+            const lastSunday = new Date(now); lastSunday.setDate(now.getDate() - 1);
+            const nextFriday = new Date(now); nextFriday.setDate(now.getDate() + 4);
+            const fmt = d => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
+            const semainePasse = fmt(lastMonday) + ' – ' + fmt(lastSunday);
+            const semaineCours = fmt(now) + ' – ' + fmt(nextFriday);
+            const semaineLabel = 'Semaine du ' + fmt(now);
 
-Retourne UNIQUEMENT ce JSON valide (sans markdown, sans backticks) :
+            const prompt = `Tu es un analyste de marché expert GoldBlock. Nous sommes le ${today}.
+
+Génère la NEWSLETTER HEBDOMADAIRE COMPLÈTE pour ${actif} en 2 parties :
+1. BILAN SEMAINE PASSÉE (${semainePasse})
+2. ANALYSE & PROJECTIONS SEMAINE EN COURS (${semaineCours})
+
+Utilise web_search pour : prix actuels et de la semaine passée de ${actif}, événements macro passés et à venir, DXY/VIX/taux US 10Y actuels, contexte géopolitique.
+
+Retourne UNIQUEMENT ce JSON valide (sans markdown) :
 {
   "actif": "${actif}",
-  "titre": "Titre accrocheur de l'analyse en français",
-  "sous_titre": "Résumé 1 ligne avec prix actuel et contexte",
-  "score": <1 à 5 selon la qualité du setup>,
-  "semaine": "Semaine du ${today}",
-  "contenu": "<HTML de l'analyse avec : <h2>1. Contexte Géopolitique & Macro</h2> tableau HTML des indicateurs (DXY, taux réels, VIX, Fed Rate, CPI, S&P500), <h2>2. Analyse Fondamentale</h2> calendrier économique de la semaine avec vrais événements, <h2>3. Analyse Technique</h2> niveaux supports/résistances actuels réels, SMC, Fibonacci, <h2>4. Notation du Setup</h2> grille 5 étoiles avec justification, <h2>5. Setup de Trade</h2> PE/SL/TP1/TP2/TP3 avec prix exacts si score >= 3 sinon AUCUNE OPPORTUNITÉ, <h2>6. À Surveiller cette Semaine</h2> événements clés>"
-}
-
-Règles : prix réels et actuels, tableaux HTML pour données macro, niveaux exacts.`;
+  "titre": "Titre accrocheur avec ${actif} et la semaine",
+  "sous_titre": "Prix actuel + bilan + projection en 1 ligne",
+  "score": <1-5>,
+  "semaine": "${semaineLabel}",
+  "contenu": "<section class='nl-bilan'><h2>📅 Bilan Semaine Passée — ${semainePasse}</h2><table><tr><th>Jour</th><th>Événement</th><th>Impact ${actif}</th></tr>...</table><p>Résumé narratif des mouvements, niveaux touchés, retournements.</p></section><section class='nl-macro'><h2>🌍 Contexte Macro</h2><table><tr><th>Indicateur</th><th>Valeur</th><th>Tendance</th><th>Impact</th></tr>...</table></section><section class='nl-tech'><h2>📊 Analyse Technique</h2><table><tr><th>Type</th><th>Niveau</th><th>Signification</th></tr>...</table><p>Structure de marché actuelle, OB, Fibonacci, SMC.</p></section><section class='nl-cal'><h2>📅 Calendrier Économique ${semaineCours}</h2><table><tr><th>Jour</th><th>Heure</th><th>Événement</th><th>Impact</th></tr>...</table></section><section class='nl-setup'><h2>🎯 Setup de Trade</h2>[PE/SL/TP1/TP2/TP3 si score>=3, sinon AUCUNE OPPORTUNITÉ]</section><section class='nl-score'><h2>⭐ Notation du Setup</h2><table><tr><th>Critère</th><th>Score</th><th>Commentaire</th></tr>...</table></section><section class='nl-scenarios'><h2>🔮 Scénarios de la Semaine</h2><p><strong>Haussier :</strong>...</p><p><strong>Baissier :</strong>...</p><p><strong>Neutre :</strong>...</p></section>"
+}`;
 
             const body = JSON.stringify({
               model: 'claude-opus-4-6',
-              max_tokens: 8000,
-              system: 'Tu es un analyste de marché professionnel. Réponds uniquement en JSON valide sans markdown.',
+              max_tokens: 12000,
+              system: 'Tu es analyste GoldBlock. Réponds uniquement en JSON valide sans markdown.',
               tools: [{ type: 'web_search_20250305', name: 'web_search' }],
               messages: [{ role: 'user', content: prompt }]
             });
@@ -79,63 +93,47 @@ Règles : prix réels et actuels, tableaux HTML pour données macro, niveaux exa
               }
             };
 
-            console.log(`[GoldBlock] Génération ${actif}...`);
+            console.log('[GoldBlock] Generation ' + actif + '...');
             const data = await request(options, body);
-
+            if (data.error) throw new Error('API: ' + data.error.message);
             const textBlock = data.content?.find(b => b.type === 'text');
-            if (!textBlock) throw new Error(`Pas de texte dans la réponse pour ${actif}`);
-
-            let text = textBlock.text.trim()
-              .replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-            
+            if (!textBlock) throw new Error('Pas de texte pour ' + actif);
+            let text = textBlock.text.trim().replace(/^```json\s*/i,'').replace(/```\s*$/i,'').trim();
             return JSON.parse(text);
           }
 
-          async function storeInSupabase(analysis) {
+          async function storeInSupabase(a) {
             const body = JSON.stringify({
-              actif:        analysis.actif,
-              titre:        analysis.titre,
-              sous_titre:   analysis.sous_titre,
-              score:        analysis.score,
-              contenu:      analysis.contenu,
-              semaine:      analysis.semaine,
-              published_at: new Date().toISOString(),
-              visible:      true
+              actif: a.actif, titre: a.titre, sous_titre: a.sous_titre,
+              score: a.score, contenu: a.contenu, semaine: a.semaine,
+              published_at: new Date().toISOString(), visible: true
             });
-
-            const url = new URL(`${SB_URL}/rest/v1/newsletters`);
+            const url = new URL(SB_URL + '/rest/v1/newsletters');
             const options = {
-              hostname: url.hostname,
-              path: url.pathname,
-              method: 'POST',
+              hostname: url.hostname, path: url.pathname, method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'apikey': SB_SERVICE,
-                'Authorization': `Bearer ${SB_SERVICE}`,
-                'Prefer': 'return=minimal',
-                'Content-Length': Buffer.byteLength(body)
+                'apikey': SB_SERVICE, 'Authorization': 'Bearer ' + SB_SERVICE,
+                'Prefer': 'return=minimal', 'Content-Length': Buffer.byteLength(body)
               }
             };
-
-            const res = await request(options, body);
-            console.log(`[GoldBlock] ${analysis.actif} stocké ✅ (score: ${analysis.score}/5)`);
-            return res;
+            await request(options, body);
+            console.log('[GoldBlock] Stocke ' + a.actif + ' score:' + a.score + '/5 — ' + a.titre);
           }
 
           async function main() {
-            const actifs = ['XAUUSD', 'BTCUSD'];
-            for (const actif of actifs) {
+            console.log('[GoldBlock] Newsletter hebdomadaire...');
+            for (const actif of ['XAUUSD', 'BTCUSD']) {
               try {
-                const analysis = await generateAnalysis(actif);
-                await storeInSupabase(analysis);
-                // Pause entre les deux analyses
-                await new Promise(r => setTimeout(r, 5000));
+                const nl = await generateNewsletter(actif);
+                await storeInSupabase(nl);
+                await new Promise(r => setTimeout(r, 8000));
               } catch(err) {
-                console.error(`[GoldBlock] Erreur ${actif}:`, err.message);
+                console.error('[GoldBlock] ERREUR ' + actif + ':', err.message);
                 process.exit(1);
               }
             }
-            console.log('[GoldBlock] ✅ 2 analyses générées et publiées !');
+            console.log('[GoldBlock] 2 newsletters publiees !');
           }
 
           main();
