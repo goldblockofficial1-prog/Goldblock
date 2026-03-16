@@ -1061,51 +1061,34 @@ async function doSignup(){
 
   setLoading('btn-signup', true, 'Créer mon compte');
   try {
-    // Admin API : crée le compte directement sans confirmation email
-    const res = await fetch(`${SB_URL}/auth/v1/admin/users`, {
+    // Signup via le Worker — crée le compte ET envoie l'email côté serveur
+    const res = await fetch('https://gb-signals.goldblockofficial.workers.dev/api/signup', {
       method: 'POST',
-      headers: sbAdmin,
-      body: JSON.stringify({
-        email: em,
-        password: pw,
-        email_confirm: true,  // marque le compte comme confirmé directement
-        user_metadata: { name: nm, premium: false }
-      })
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ email: em, password: pw, name: nm })
     });
     const data = await res.json();
 
-    if (data.code === 422 || (data.msg && data.msg.includes('already'))) {
-      er.textContent = 'Un compte existe déjà avec cet email. Connectez-vous.';
-      er.style.display = 'block'; return;
-    }
-    if (data.code >= 400) {
-      er.textContent = data.msg || 'Erreur. Réessayez.';
+    if (!res.ok || data.error) {
+      const msg = data.error || '';
+      if (msg.toLowerCase().includes('already') || msg.includes('422')) {
+        er.textContent = 'Un compte existe déjà avec cet email. Connectez-vous.';
+      } else {
+        er.textContent = msg || 'Erreur. Réessayez.';
+      }
       er.style.display = 'block'; return;
     }
 
-    if (data.id) {
-      // Compte créé — connexion automatique
-      const loginRes = await fetch(`${SB_URL}/auth/v1/token?grant_type=password`, {
-        method: 'POST',
-        headers: { ...sbHeaders },
-        body: JSON.stringify({ email: em, password: pw })
-      });
-      const loginData = await loginRes.json();
+    if (data.ok) {
       const u = {
-        id: data.id,
+        id: data.user.id,
         email: em,
         name: nm,
         premium: false,
-        access_token: loginData.access_token || null
+        access_token: data.access_token || null
       };
       sS(u); applyS(u);
       showPage('member');
-      // Email de bienvenue gratuit
-      fetch('https://gb-signals.goldblockofficial.workers.dev/api/welcome-email', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({to: em, name: nm, isPremium: false})
-      }).catch(()=>{});
       openPayment();
     }
   } catch(e) {
